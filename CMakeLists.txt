@@ -60,7 +60,10 @@ if(JSI_ENABLE_QUICKJS)
         if(_qjs_inc AND _qjs_lib)
             message(STATUS "JSI: Found system QuickJS: ${_qjs_inc}, ${_qjs_lib}")
             # Use the system library directly
-            target_sources(jsi PRIVATE src/quickjs/quickjs_engine.cpp)
+            target_sources(jsi PRIVATE
+                src/quickjs/quickjs_bridge.c
+                src/quickjs/quickjs_engine.cpp
+            )
             target_include_directories(jsi PRIVATE "${_qjs_inc}")
             target_link_libraries(jsi PRIVATE "${_qjs_lib}")
             target_compile_definitions(jsi PUBLIC JSI_HAS_QUICKJS=1)
@@ -117,7 +120,12 @@ if(JSI_ENABLE_QUICKJS)
             endif()
             target_link_libraries(quickjs_lib PRIVATE m)
 
-            target_sources(jsi PRIVATE src/quickjs/quickjs_engine.cpp)
+            # Bridge is compiled as C (avoids JSValue compound-literal
+            # conflicts between quickjs.h and C++)
+            target_sources(jsi PRIVATE
+                src/quickjs/quickjs_bridge.c
+                src/quickjs/quickjs_engine.cpp
+            )
             target_link_libraries(jsi PRIVATE quickjs_lib)
             target_compile_definitions(jsi PUBLIC JSI_HAS_QUICKJS=1)
             math(EXPR JSI_BACKENDS_FOUND "${JSI_BACKENDS_FOUND} + 1")
