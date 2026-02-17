@@ -70,14 +70,15 @@ if(JSI_ENABLE_QUICKJS)
         endif()
     endif()
 
-    # Strategy 4: FetchContent via tarball URL (no git auth required)
+    # Strategy 4: FetchContent via git clone
     if(NOT _quickjs_found AND JSI_FETCH_QUICKJS)
         message(STATUS "JSI: Attempting to fetch QuickJS via FetchContent...")
         include(FetchContent)
         FetchContent_Declare(
             quickjs
-            URL      https://github.com/bellard/quickjs/archive/refs/heads/master.tar.gz
-            URL_HASH ""
+            GIT_REPOSITORY https://github.com/bellard/quickjs.git
+            GIT_TAG        master
+            GIT_SHALLOW    TRUE
         )
         FetchContent_MakeAvailable(quickjs)
         if(EXISTS "${quickjs_SOURCE_DIR}/quickjs.h")
