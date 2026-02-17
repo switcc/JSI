@@ -32,13 +32,16 @@ A C++17 abstraction layer that provides a unified interface over multiple JavaSc
 ### 1. Get Dependencies
 
 ```sh
-# Fetch QuickJS source into third_party/
+# Fetch QuickJS source into third_party/ (downloads tarball, no git auth needed)
 ./setup.sh quickjs
 
 # V8 – install via your package manager
 sudo apt-get install libv8-dev          # Debian/Ubuntu
 brew install v8                         # macOS
 ```
+
+If `setup.sh` can't reach the network, you can manually download QuickJS from
+[bellard.org/quickjs](https://bellard.org/quickjs/) and extract it into `third_party/quickjs/`.
 
 ### 2. Build
 

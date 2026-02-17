@@ -70,15 +70,14 @@ if(JSI_ENABLE_QUICKJS)
         endif()
     endif()
 
-    # Strategy 4: FetchContent (requires network)
+    # Strategy 4: FetchContent via tarball URL (no git auth required)
     if(NOT _quickjs_found AND JSI_FETCH_QUICKJS)
         message(STATUS "JSI: Attempting to fetch QuickJS via FetchContent...")
         include(FetchContent)
         FetchContent_Declare(
             quickjs
-            GIT_REPOSITORY https://github.com/nicbarker/quickjs.git
-            GIT_TAG        master
-            GIT_SHALLOW    TRUE
+            URL      https://github.com/nicbarker/nicbarker-quickjs/archive/refs/heads/main.tar.gz
+            URL_HASH ""
         )
         FetchContent_MakeAvailable(quickjs)
         if(EXISTS "${quickjs_SOURCE_DIR}/quickjs.h")
