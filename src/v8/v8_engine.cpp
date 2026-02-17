@@ -4,7 +4,6 @@
 #include <libplatform/libplatform.h>
 
 #include <cstring>
-#include <iostream>
 #include <mutex>
 #include <unordered_map>
 
@@ -25,6 +24,75 @@ static void ensureV8Initialized() {
 }
 
 // ---------------------------------------------------------------------------
+// Conversion helpers (free functions)
+// ---------------------------------------------------------------------------
+static JSValue v8ToJSI(v8::Isolate* iso, v8::Local<v8::Context> ctx,
+                        v8::Local<v8::Value> val) {
+    if (val.IsEmpty() || val->IsUndefined()) return JSValue::undefined();
+    if (val->IsNull())    return JSValue::null();
+    if (val->IsBoolean()) return JSValue::from(val->BooleanValue(iso));
+    if (val->IsNumber())  return JSValue::from(val->NumberValue(ctx).FromJust());
+    if (val->IsString()) {
+        v8::String::Utf8Value utf8(iso, val);
+        return JSValue::from(std::string(*utf8, utf8.length()));
+    }
+    if (val->IsArray()) {
+        auto arr = val.As<v8::Array>();
+        std::vector<JSValue> elems;
+        for (uint32_t i = 0; i < arr->Length(); ++i) {
+            auto elem = arr->Get(ctx, i).ToLocalChecked();
+            elems.push_back(v8ToJSI(iso, ctx, elem));
+        }
+        return JSValue::array(std::move(elems));
+    }
+    if (val->IsObject()) {
+        return JSValue::object();
+    }
+    return JSValue::undefined();
+}
+
+static v8::Local<v8::Value> jsiToV8(v8::Isolate* iso,
+                                     v8::Local<v8::Context> ctx,
+                                     const JSValue& val) {
+    switch (val.type()) {
+        case JSValue::Type::Undefined:
+            return v8::Undefined(iso);
+        case JSValue::Type::Null:
+            return v8::Null(iso);
+        case JSValue::Type::Boolean:
+            return v8::Boolean::New(iso, val.asBool());
+        case JSValue::Type::Number:
+            return v8::Number::New(iso, val.asNumber());
+        case JSValue::Type::String:
+            return v8::String::NewFromUtf8(iso, val.asString().c_str(),
+                       v8::NewStringType::kNormal,
+                       static_cast<int>(val.asString().size()))
+                   .ToLocalChecked();
+        case JSValue::Type::Array: {
+            const auto& arr = val.asArray();
+            auto v8arr = v8::Array::New(iso, static_cast<int>(arr.size()));
+            for (size_t i = 0; i < arr.size(); ++i) {
+                v8arr->Set(ctx, static_cast<uint32_t>(i),
+                           jsiToV8(iso, ctx, arr[i])).Check();
+            }
+            return v8arr;
+        }
+        case JSValue::Type::Object: {
+            auto obj = v8::Object::New(iso);
+            for (const auto& [k, v] : val.asObject()) {
+                auto key = v8::String::NewFromUtf8(iso, k.c_str(),
+                               v8::NewStringType::kNormal,
+                               static_cast<int>(k.size()))
+                           .ToLocalChecked();
+                obj->Set(ctx, key, jsiToV8(iso, ctx, v)).Check();
+            }
+            return obj;
+        }
+    }
+    return v8::Undefined(iso);
+}
+
+// ---------------------------------------------------------------------------
 // Impl
 // ---------------------------------------------------------------------------
 struct V8Engine::Impl {
@@ -32,84 +100,14 @@ struct V8Engine::Impl {
     v8::Global<v8::Context>               context;
     v8::Isolate::CreateParams             createParams;
 
-    // Stored native functions
     struct NativeFuncEntry {
         NativeFunction fn;
-        v8::Isolate*   isolate;
     };
     std::unordered_map<std::string, std::unique_ptr<NativeFuncEntry>> nativeFuncs;
-
-    // Convert a V8 value to JSValue
-    JSValue toJSValue(v8::Isolate* iso, v8::Local<v8::Context> ctx,
-                      v8::Local<v8::Value> val) const {
-        if (val.IsEmpty() || val->IsUndefined()) return JSValue::undefined();
-        if (val->IsNull())    return JSValue::null();
-        if (val->IsBoolean()) return JSValue::from(val->BooleanValue(iso));
-        if (val->IsNumber())  return JSValue::from(val->NumberValue(ctx).FromJust());
-        if (val->IsString()) {
-            v8::String::Utf8Value utf8(iso, val);
-            return JSValue::from(std::string(*utf8, utf8.length()));
-        }
-        if (val->IsArray()) {
-            auto arr = val.As<v8::Array>();
-            std::vector<JSValue> elems;
-            for (uint32_t i = 0; i < arr->Length(); ++i) {
-                auto elem = arr->Get(ctx, i).ToLocalChecked();
-                elems.push_back(toJSValue(iso, ctx, elem));
-            }
-            return JSValue::array(std::move(elems));
-        }
-        if (val->IsObject()) {
-            return JSValue::object();
-        }
-        return JSValue::undefined();
-    }
-
-    // Convert JSValue to a V8 value
-    v8::Local<v8::Value> fromJSValue(v8::Isolate* iso,
-                                      v8::Local<v8::Context> ctx,
-                                      const JSValue& val) const {
-        switch (val.type()) {
-            case JSValue::Type::Undefined:
-                return v8::Undefined(iso);
-            case JSValue::Type::Null:
-                return v8::Null(iso);
-            case JSValue::Type::Boolean:
-                return v8::Boolean::New(iso, val.asBool());
-            case JSValue::Type::Number:
-                return v8::Number::New(iso, val.asNumber());
-            case JSValue::Type::String:
-                return v8::String::NewFromUtf8(iso, val.asString().c_str(),
-                           v8::NewStringType::kNormal,
-                           static_cast<int>(val.asString().size()))
-                       .ToLocalChecked();
-            case JSValue::Type::Array: {
-                const auto& arr = val.asArray();
-                auto v8arr = v8::Array::New(iso, static_cast<int>(arr.size()));
-                for (size_t i = 0; i < arr.size(); ++i) {
-                    v8arr->Set(ctx, static_cast<uint32_t>(i),
-                               fromJSValue(iso, ctx, arr[i])).Check();
-                }
-                return v8arr;
-            }
-            case JSValue::Type::Object: {
-                auto obj = v8::Object::New(iso);
-                for (const auto& [k, v] : val.asObject()) {
-                    auto key = v8::String::NewFromUtf8(iso, k.c_str(),
-                                   v8::NewStringType::kNormal,
-                                   static_cast<int>(k.size()))
-                               .ToLocalChecked();
-                    obj->Set(ctx, key, fromJSValue(iso, ctx, v)).Check();
-                }
-                return obj;
-            }
-        }
-        return v8::Undefined(iso);
-    }
 };
 
 // ---------------------------------------------------------------------------
-// C callback trampoline for native functions
+// C++ callback trampoline for native functions
 // ---------------------------------------------------------------------------
 static void v8NativeTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info) {
     auto* entry = reinterpret_cast<V8Engine::Impl::NativeFuncEntry*>(
@@ -119,18 +117,15 @@ static void v8NativeTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info) 
     v8::HandleScope scope(iso);
     auto ctx = iso->GetCurrentContext();
 
-    // Build a temporary Impl just for conversion
-    V8Engine::Impl helper;
-
     std::vector<JSValue> args;
     args.reserve(info.Length());
     for (int i = 0; i < info.Length(); ++i) {
-        args.push_back(helper.toJSValue(iso, ctx, info[i]));
+        args.push_back(v8ToJSI(iso, ctx, info[i]));
     }
 
     try {
         JSValue result = entry->fn(args);
-        info.GetReturnValue().Set(helper.fromJSValue(iso, ctx, result));
+        info.GetReturnValue().Set(jsiToV8(iso, ctx, result));
     } catch (const std::exception& e) {
         iso->ThrowException(
             v8::String::NewFromUtf8(iso, e.what()).ToLocalChecked());
@@ -205,7 +200,7 @@ JSValue V8Engine::evaluate(const std::string& code,
         throw JSError(std::string("V8 eval error: ") + *err);
     }
 
-    return impl_->toJSValue(impl_->isolate, ctx, result);
+    return v8ToJSI(impl_->isolate, ctx, result);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +217,7 @@ void V8Engine::setGlobal(const std::string& name, JSValue value) {
                    v8::NewStringType::kNormal,
                    static_cast<int>(name.size()))
                .ToLocalChecked();
-    global->Set(ctx, key, impl_->fromJSValue(impl_->isolate, ctx, value)).Check();
+    global->Set(ctx, key, jsiToV8(impl_->isolate, ctx, value)).Check();
 }
 
 JSValue V8Engine::getGlobal(const std::string& name) {
@@ -237,7 +232,7 @@ JSValue V8Engine::getGlobal(const std::string& name) {
                    static_cast<int>(name.size()))
                .ToLocalChecked();
     auto val = global->Get(ctx, key).ToLocalChecked();
-    return impl_->toJSValue(impl_->isolate, ctx, val);
+    return v8ToJSI(impl_->isolate, ctx, val);
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +260,7 @@ JSValue V8Engine::call(const std::string& funcName,
     std::vector<v8::Local<v8::Value>> v8args;
     v8args.reserve(args.size());
     for (const auto& a : args) {
-        v8args.push_back(impl_->fromJSValue(impl_->isolate, ctx, a));
+        v8args.push_back(jsiToV8(impl_->isolate, ctx, a));
     }
 
     v8::Local<v8::Value> result;
@@ -275,7 +270,7 @@ JSValue V8Engine::call(const std::string& funcName,
         throw JSError(std::string("V8 call error: ") + *err);
     }
 
-    return impl_->toJSValue(impl_->isolate, ctx, result);
+    return v8ToJSI(impl_->isolate, ctx, result);
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +285,6 @@ void V8Engine::registerNativeFunction(const std::string& name,
 
     auto entry   = std::make_unique<Impl::NativeFuncEntry>();
     entry->fn    = std::move(fn);
-    entry->isolate = impl_->isolate;
     auto* raw    = entry.get();
     impl_->nativeFuncs[name] = std::move(entry);
 

@@ -25,8 +25,10 @@ public:
                                    NativeFunction fn) override;
     void    gc() override;
 
-private:
+    // Impl is public so the C++ trampoline can access NativeFuncEntry
     struct Impl;
+
+private:
     std::unique_ptr<Impl> impl_;
 };
 
