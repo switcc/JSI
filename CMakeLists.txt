@@ -76,7 +76,7 @@ if(JSI_ENABLE_QUICKJS)
         include(FetchContent)
         FetchContent_Declare(
             quickjs
-            URL      https://github.com/nicbarker/nicbarker-quickjs/archive/refs/heads/main.tar.gz
+            URL      https://github.com/bellard/quickjs/archive/refs/heads/master.tar.gz
             URL_HASH ""
         )
         FetchContent_MakeAvailable(quickjs)
@@ -88,9 +88,15 @@ if(JSI_ENABLE_QUICKJS)
 
     # Build QuickJS from source if we have a source directory (not system lib)
     if(_quickjs_found AND NOT _quickjs_system)
-        # Determine which source file to compile
+        # Determine which source files to compile (bellard/quickjs layout)
         if(EXISTS "${_qjs_src_dir}/quickjs.c")
             set(_qjs_sources "${_qjs_src_dir}/quickjs.c")
+            # bellard/quickjs requires these additional sources
+            foreach(_extra cutils.c libregexp.c libunicode.c)
+                if(EXISTS "${_qjs_src_dir}/${_extra}")
+                    list(APPEND _qjs_sources "${_qjs_src_dir}/${_extra}")
+                endif()
+            endforeach()
         elseif(EXISTS "${_qjs_src_dir}/src/quickjs.c")
             set(_qjs_sources "${_qjs_src_dir}/src/quickjs.c")
         else()
@@ -108,6 +114,7 @@ if(JSI_ENABLE_QUICKJS)
             if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
                 target_compile_options(quickjs_lib PRIVATE -w)
             endif()
+            target_link_libraries(quickjs_lib PRIVATE m)
 
             target_sources(jsi PRIVATE src/quickjs/quickjs_engine.cpp)
             target_link_libraries(jsi PRIVATE quickjs_lib)

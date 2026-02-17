@@ -41,6 +41,7 @@ brew install v8                         # macOS
 ```
 
 If `setup.sh` can't reach the network, you can manually download QuickJS from
+[github.com/bellard/quickjs](https://github.com/bellard/quickjs) or
 [bellard.org/quickjs](https://bellard.org/quickjs/) and extract it into `third_party/quickjs/`.
 
 ### 2. Build

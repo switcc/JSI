@@ -41,14 +41,14 @@ fetch_quickjs() {
     local tarball="${THIRD_PARTY}/quickjs.tar.gz"
     local ok=0
 
-    # Strategy 1: GitHub tarball (no auth required for public repos)
+    # Strategy 1: GitHub tarball from bellard/quickjs (no auth required)
     if [[ $ok -eq 0 ]]; then
-        echo "  Trying GitHub archive download..."
-        download "https://github.com/nicbarker/nicbarker-quickjs/archive/refs/heads/main.tar.gz" \
+        echo "  Trying GitHub archive download (bellard/quickjs)..."
+        download "https://github.com/bellard/quickjs/archive/refs/heads/master.tar.gz" \
                  "${tarball}" 2>/dev/null && ok=1 || true
     fi
 
-    # Strategy 2: Bellard's official release
+    # Strategy 2: Bellard's website release
     if [[ $ok -eq 0 ]]; then
         echo "  Trying bellard.org release..."
         download "https://bellard.org/quickjs/quickjs-2024-01-13.tar.xz" \
@@ -59,10 +59,10 @@ fetch_quickjs() {
             && ok=2 || true
     fi
 
-    # Strategy 3: git clone as last resort
+    # Strategy 3: git clone over SSH as last resort
     if [[ $ok -eq 0 ]]; then
         echo "  Trying git clone over SSH..."
-        git clone --depth 1 git@github.com:nicbarker/nicbarker-quickjs.git "${dest}" 2>/dev/null && ok=3 || true
+        git clone --depth 1 git@github.com:bellard/quickjs.git "${dest}" 2>/dev/null && ok=3 || true
     fi
 
     if [[ $ok -eq 0 ]]; then
@@ -72,8 +72,8 @@ fetch_quickjs() {
         echo "  ${dest}/"
         echo ""
         echo "You can download it from:"
+        echo "  https://github.com/bellard/quickjs"
         echo "  https://bellard.org/quickjs/"
-        echo "  https://github.com/nicbarker/nicbarker-quickjs"
         return 1
     fi
 
