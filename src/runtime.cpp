@@ -12,6 +12,34 @@
 namespace jsi {
 
 // ---------------------------------------------------------------------------
+// JSValue – copy operations (recursive types live behind unique_ptr)
+// ---------------------------------------------------------------------------
+JSValue::JSValue(const JSValue& o) : type_(o.type_) {
+    switch (type_) {
+        case Type::Object:
+            data_ = std::make_unique<ObjectMap>(
+                *std::get<std::unique_ptr<ObjectMap>>(o.data_));
+            break;
+        case Type::Array:
+            data_ = std::make_unique<Array>(
+                *std::get<std::unique_ptr<Array>>(o.data_));
+            break;
+        case Type::Boolean:   data_ = std::get<bool>(o.data_); break;
+        case Type::Number:    data_ = std::get<double>(o.data_); break;
+        case Type::String:    data_ = std::get<std::string>(o.data_); break;
+        default:              break; // monostate for Undefined/Null
+    }
+}
+
+JSValue& JSValue::operator=(const JSValue& o) {
+    if (this != &o) {
+        JSValue tmp(o);
+        *this = std::move(tmp);
+    }
+    return *this;
+}
+
+// ---------------------------------------------------------------------------
 // createEngine – factory function
 // ---------------------------------------------------------------------------
 std::unique_ptr<JSEngine> createEngine(EngineType t) {

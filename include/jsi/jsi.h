@@ -47,6 +47,9 @@ public:
         Array,   // represented as vector<JSValue>
     };
 
+    using ObjectMap = std::unordered_map<std::string, JSValue>;
+    using Array     = std::vector<JSValue>;
+
     // -- Factories ----------------------------------------------------------
     static JSValue undefined()              { return JSValue(Type::Undefined); }
     static JSValue null()                   { return JSValue(Type::Null); }
@@ -55,12 +58,21 @@ public:
     static JSValue from(int32_t v)          { return JSValue(static_cast<double>(v)); }
     static JSValue from(const std::string& v) { return JSValue(v); }
     static JSValue from(const char* v)      { return JSValue(std::string(v)); }
-    static JSValue object(std::unordered_map<std::string, JSValue> m = {}) {
-        return JSValue(std::move(m));
+    static JSValue object(ObjectMap m = {}) {
+        return JSValue(Type::Object, std::move(m));
     }
-    static JSValue array(std::vector<JSValue> v = {}) {
-        return JSValue(std::move(v));
+    static JSValue array(Array v = {}) {
+        return JSValue(Type::Array, std::move(v));
     }
+
+    // JSValue must be copyable so that it can be passed by value across
+    // the engine boundary.  The recursive types (object / array) live
+    // behind unique_ptr in the variant, so we implement copy manually.
+    JSValue(const JSValue& o);
+    JSValue& operator=(const JSValue& o);
+    JSValue(JSValue&&) noexcept = default;
+    JSValue& operator=(JSValue&&) noexcept = default;
+    ~JSValue() = default;
 
     // -- Type queries -------------------------------------------------------
     Type  type()        const { return type_; }
@@ -85,13 +97,13 @@ public:
         if (type_ != Type::String) throw JSError("JSValue is not a string");
         return std::get<std::string>(data_);
     }
-    const std::unordered_map<std::string, JSValue>& asObject() const {
+    const ObjectMap& asObject() const {
         if (type_ != Type::Object) throw JSError("JSValue is not an object");
-        return std::get<std::unordered_map<std::string, JSValue>>(data_);
+        return *std::get<std::unique_ptr<ObjectMap>>(data_);
     }
-    const std::vector<JSValue>& asArray() const {
+    const Array& asArray() const {
         if (type_ != Type::Array) throw JSError("JSValue is not an array");
-        return std::get<std::vector<JSValue>>(data_);
+        return *std::get<std::unique_ptr<Array>>(data_);
     }
 
     // -- Coerce to human-readable string ------------------------------------
@@ -127,19 +139,21 @@ private:
     explicit JSValue(bool v) : type_(Type::Boolean), data_(v) {}
     explicit JSValue(double v) : type_(Type::Number), data_(v) {}
     explicit JSValue(std::string v) : type_(Type::String), data_(std::move(v)) {}
-    explicit JSValue(std::unordered_map<std::string, JSValue> v)
-        : type_(Type::Object), data_(std::move(v)) {}
-    explicit JSValue(std::vector<JSValue> v)
-        : type_(Type::Array), data_(std::move(v)) {}
+    JSValue(Type t, ObjectMap m)
+        : type_(t), data_(std::make_unique<ObjectMap>(std::move(m))) {}
+    JSValue(Type t, Array v)
+        : type_(t), data_(std::make_unique<Array>(std::move(v))) {}
 
     Type type_ = Type::Undefined;
+    // Recursive types are wrapped in unique_ptr so that the variant
+    // never requires JSValue to be a complete type.
     using Storage = std::variant<
         std::monostate,
         bool,
         double,
         std::string,
-        std::unordered_map<std::string, JSValue>,
-        std::vector<JSValue>>;
+        std::unique_ptr<ObjectMap>,
+        std::unique_ptr<Array>>;
     Storage data_;
 };
 
