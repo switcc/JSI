@@ -96,7 +96,7 @@ if(JSI_ENABLE_QUICKJS)
         if(EXISTS "${_qjs_src_dir}/quickjs.c")
             set(_qjs_sources "${_qjs_src_dir}/quickjs.c")
             # bellard/quickjs requires these additional sources
-            foreach(_extra cutils.c libregexp.c libunicode.c)
+            foreach(_extra cutils.c libregexp.c libunicode.c dtoa.c)
                 if(EXISTS "${_qjs_src_dir}/${_extra}")
                     list(APPEND _qjs_sources "${_qjs_src_dir}/${_extra}")
                 endif()
