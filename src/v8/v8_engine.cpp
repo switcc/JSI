@@ -10,6 +10,29 @@
 namespace jsi {
 
 // ---------------------------------------------------------------------------
+// Helper – convert Local or MaybeLocal<String> to Local<String> portably.
+// Older V8 returns Local directly; newer V8 returns MaybeLocal.
+// ---------------------------------------------------------------------------
+static v8::Local<v8::String> toCheckedLocal(v8::Local<v8::String> l) { return l; }
+static v8::Local<v8::String> toCheckedLocal(v8::MaybeLocal<v8::String> ml) {
+    return ml.ToLocalChecked();
+}
+
+// ---------------------------------------------------------------------------
+// Helper – create a V8 string from a C string (works across V8 versions)
+// ---------------------------------------------------------------------------
+static v8::Local<v8::String> v8Str(v8::Isolate* iso, const char* s) {
+    return toCheckedLocal(
+        v8::String::NewFromUtf8(iso, s, v8::NewStringType::kNormal,
+                                static_cast<int>(strlen(s))));
+}
+
+static v8::Local<v8::String> v8Str(v8::Isolate* iso, const char* s, int len) {
+    return toCheckedLocal(
+        v8::String::NewFromUtf8(iso, s, v8::NewStringType::kNormal, len));
+}
+
+// ---------------------------------------------------------------------------
 // V8 platform – initialized once across all V8Engine instances
 // ---------------------------------------------------------------------------
 static std::once_flag g_v8InitFlag;
@@ -64,10 +87,8 @@ static v8::Local<v8::Value> jsiToV8(v8::Isolate* iso,
         case JSValue::Type::Number:
             return v8::Number::New(iso, val.asNumber());
         case JSValue::Type::String:
-            return v8::String::NewFromUtf8(iso, val.asString().c_str(),
-                       v8::NewStringType::kNormal,
-                       static_cast<int>(val.asString().size()))
-                   .ToLocalChecked();
+            return v8Str(iso, val.asString().c_str(),
+                        static_cast<int>(val.asString().size()));
         case JSValue::Type::Array: {
             const auto& arr = val.asArray();
             auto v8arr = v8::Array::New(iso, static_cast<int>(arr.size()));
@@ -80,10 +101,7 @@ static v8::Local<v8::Value> jsiToV8(v8::Isolate* iso,
         case JSValue::Type::Object: {
             auto obj = v8::Object::New(iso);
             for (const auto& [k, v] : val.asObject()) {
-                auto key = v8::String::NewFromUtf8(iso, k.c_str(),
-                               v8::NewStringType::kNormal,
-                               static_cast<int>(k.size()))
-                           .ToLocalChecked();
+                auto key = v8Str(iso, k.c_str(), static_cast<int>(k.size()));
                 obj->Set(ctx, key, jsiToV8(iso, ctx, v)).Check();
             }
             return obj;
@@ -127,8 +145,7 @@ static void v8NativeTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info) 
         JSValue result = entry->fn(args);
         info.GetReturnValue().Set(jsiToV8(iso, ctx, result));
     } catch (const std::exception& e) {
-        iso->ThrowException(
-            v8::String::NewFromUtf8(iso, e.what()).ToLocalChecked());
+        iso->ThrowException(v8Str(iso, e.what()));
     }
 }
 
@@ -178,15 +195,10 @@ JSValue V8Engine::evaluate(const std::string& code,
 
     v8::TryCatch tryCatch(impl_->isolate);
 
-    v8::ScriptOrigin origin(
-        v8::String::NewFromUtf8(impl_->isolate, sourceURL.c_str())
-            .ToLocalChecked());
+    v8::ScriptOrigin origin(v8Str(impl_->isolate, sourceURL.c_str()));
 
     v8::Local<v8::String> source =
-        v8::String::NewFromUtf8(impl_->isolate, code.c_str(),
-                                v8::NewStringType::kNormal,
-                                static_cast<int>(code.size()))
-            .ToLocalChecked();
+        v8Str(impl_->isolate, code.c_str(), static_cast<int>(code.size()));
 
     v8::Local<v8::Script> script;
     if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) {
@@ -213,10 +225,7 @@ void V8Engine::setGlobal(const std::string& name, JSValue value) {
     v8::Context::Scope contextScope(ctx);
 
     auto global = ctx->Global();
-    auto key = v8::String::NewFromUtf8(impl_->isolate, name.c_str(),
-                   v8::NewStringType::kNormal,
-                   static_cast<int>(name.size()))
-               .ToLocalChecked();
+    auto key = v8Str(impl_->isolate, name.c_str(), static_cast<int>(name.size()));
     global->Set(ctx, key, jsiToV8(impl_->isolate, ctx, value)).Check();
 }
 
@@ -227,10 +236,7 @@ JSValue V8Engine::getGlobal(const std::string& name) {
     v8::Context::Scope contextScope(ctx);
 
     auto global = ctx->Global();
-    auto key = v8::String::NewFromUtf8(impl_->isolate, name.c_str(),
-                   v8::NewStringType::kNormal,
-                   static_cast<int>(name.size()))
-               .ToLocalChecked();
+    auto key = v8Str(impl_->isolate, name.c_str(), static_cast<int>(name.size()));
     auto val = global->Get(ctx, key).ToLocalChecked();
     return v8ToJSI(impl_->isolate, ctx, val);
 }
@@ -248,8 +254,7 @@ JSValue V8Engine::call(const std::string& funcName,
     v8::TryCatch tryCatch(impl_->isolate);
 
     auto global = ctx->Global();
-    auto key = v8::String::NewFromUtf8(impl_->isolate, funcName.c_str())
-               .ToLocalChecked();
+    auto key = v8Str(impl_->isolate, funcName.c_str());
     auto val = global->Get(ctx, key).ToLocalChecked();
 
     if (!val->IsFunction()) {
@@ -293,8 +298,7 @@ void V8Engine::registerNativeFunction(const std::string& name,
         v8::FunctionTemplate::New(impl_->isolate, v8NativeTrampoline, external);
 
     auto global = ctx->Global();
-    auto key = v8::String::NewFromUtf8(impl_->isolate, name.c_str())
-               .ToLocalChecked();
+    auto key = v8Str(impl_->isolate, name.c_str());
     global->Set(ctx, key, funcTemplate->GetFunction(ctx).ToLocalChecked()).Check();
 }
 
